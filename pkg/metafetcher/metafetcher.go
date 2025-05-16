@@ -31,6 +31,7 @@ func FetchMetadata(url string) MetaData {
 	}
 
 	return MetaData{
+		Url:           url,
 		FileName:      filename,
 		ContentLength: contentLength,
 	}

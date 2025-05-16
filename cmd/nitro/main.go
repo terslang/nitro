@@ -9,7 +9,8 @@ import (
 )
 
 func main() {
-	metadata := metafetcher.FetchMetadata(os.Args[1])
-	downloader.Download(os.Args[1], metadata)
-	fmt.Println(metadata)
+	options, _ := parseCommandLineInputs(os.Args)
+	fmt.Println(options)
+	metadata := metafetcher.FetchMetadata(options.Url)
+	downloader.Download(metadata, options.Parallel)
 }
