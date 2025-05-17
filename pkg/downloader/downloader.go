@@ -40,20 +40,12 @@ func Download(metadata metafetcher.MetaData, parallel uint8) {
 
 			rangeToBytes = min(rangeToBytes, metadata.ContentLength)
 
-			partialContents, err := downloadPartial(metadata.Url, rangeFromBytes, rangeToBytes)
+			partialContentsReader, err := downloadPartial(metadata.Url, rangeFromBytes, rangeToBytes)
 			if err != nil {
 				fmt.Println("Failed to download file")
 			}
 
-			fmt.Printf("Part %d: Downloaded %d bytes. Writing to file at offset %d.\n", partNo, len(partialContents), rangeFromBytes)
-			bytesWritten, err := outFile.WriteAt(partialContents, int64(rangeFromBytes))
-			if err != nil {
-				fmt.Printf("Part %d: Failed to write to file at offset %d: %v\n", partNo, rangeFromBytes, err)
-				return // Exit this goroutine on write error
-			}
-			if bytesWritten != len(partialContents) {
-				fmt.Printf("Part %d: Warning - partial write. Expected %d bytes, wrote %d bytes.\n", partNo, len(partialContents), bytesWritten)
-			}
+			downloadAndWriteToFile(partialContentsReader, outFile, int64(rangeFromBytes), partNo)
 
 			fmt.Printf("%d Partial download is done\n", partNo)
 		}(i)
@@ -62,7 +54,7 @@ func Download(metadata metafetcher.MetaData, parallel uint8) {
 	wg.Wait()
 }
 
-func downloadPartial(url string, bytesRangeFrom uint64, bytesRangeTo uint64) ([]byte, error) {
+func downloadPartial(url string, bytesRangeFrom uint64, bytesRangeTo uint64) (io.ReadCloser, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		fmt.Println("failed to create error")
@@ -75,8 +67,37 @@ func downloadPartial(url string, bytesRangeFrom uint64, bytesRangeTo uint64) ([]
 		fmt.Println("Failed to download file")
 	}
 
-	contents, err := io.ReadAll(resp.Body)
-	defer resp.Body.Close()
+	return resp.Body, nil
+}
 
-	return contents, nil
+func downloadAndWriteToFile(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8) error {
+	defer reader.Close()
+
+	buffer := make([]byte, 32*1024) // 32kb buffer
+	currentWriteOffset := startOffset
+
+	for {
+		bytesRead, readErr := reader.Read(buffer)
+
+		if bytesRead > 0 {
+			bytesWritten, writeErr := file.WriteAt(buffer[:bytesRead], currentWriteOffset)
+			if writeErr != nil {
+				return fmt.Errorf("part %d: failed to write to file at offset %d: %w", partNo, currentWriteOffset, writeErr)
+			}
+
+			fmt.Printf("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+
+			currentWriteOffset += int64(bytesWritten)
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+
+			return fmt.Errorf("part %d: failed to read response stream: %w", partNo, readErr)
+		}
+	}
+
+	return nil
 }

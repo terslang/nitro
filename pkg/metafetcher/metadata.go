@@ -4,4 +4,5 @@ type MetaData struct {
 	Url           string
 	FileName      string
 	ContentLength uint64
+	AcceptRanges  bool
 }

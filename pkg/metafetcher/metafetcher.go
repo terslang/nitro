@@ -22,6 +22,9 @@ func FetchMetadata(url string) MetaData {
 				filename = strings.Trim(strings.Trim(parts[1], "\""), " ")
 			}
 		}
+	} else {
+		urlParts := strings.Split(url, "/")
+		filename = strings.Trim(urlParts[len(urlParts)-1], " ")
 	}
 
 	var contentLength uint64
@@ -30,9 +33,16 @@ func FetchMetadata(url string) MetaData {
 		contentLength, _ = strconv.ParseUint(contentLengthHeader, 10, 64)
 	}
 
+	var acceptRanges bool
+	acceptRangesHeader := resp.Header.Get("Accept-Ranges")
+	if acceptRangesHeader == "bytes" {
+		acceptRanges = true
+	}
+
 	return MetaData{
 		Url:           url,
 		FileName:      filename,
 		ContentLength: contentLength,
+		AcceptRanges:  acceptRanges,
 	}
 }
