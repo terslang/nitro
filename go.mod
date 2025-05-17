@@ -2,4 +2,4 @@ module github.com/terslang/nitro
 
 go 1.24.3
 
-require github.com/akamensky/argparse v1.4.0
+require github.com/urfave/cli/v3 v3.3.3
