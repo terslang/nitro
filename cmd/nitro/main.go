@@ -13,14 +13,14 @@ import (
 	"github.com/terslang/nitro/pkg/options"
 )
 
-var version string = "dev"
+const VERSION string = "0.0.1"
 
 func main() {
 	opts := options.NitroOptions{}
 
 	cmd := &cli.Command{
 		Name:    "nitro",
-		Version: version,
+		Version: VERSION,
 		Usage:   "Download Accelerator",
 		Arguments: []cli.Argument{
 			&cli.StringArg{
