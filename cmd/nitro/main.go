@@ -16,8 +16,6 @@ import (
 const VERSION string = "0.0.1"
 
 func main() {
-	opts := options.NitroOptions{}
-
 	cmd := &cli.Command{
 		Name:    "nitro",
 		Version: VERSION,
@@ -33,15 +31,26 @@ func main() {
 				Name:        "parallel",
 				Usage:       "Number of conccurent connections to use for parallel downloads",
 				Aliases:     []string{"p"},
+				Value:       uint8(runtime.NumCPU()),
 				DefaultText: fmt.Sprintf("%d - Determined based on hardware capabilities", uint8(runtime.NumCPU())),
+			},
+			&cli.StringFlag{
+				Name:    "output",
+				Usage:   "Path to destination file to download content",
+				Aliases: []string{"o"},
+				Value:   options.DefaultFileName,
 			},
 		},
 		Action: func(ctx context.Context, c *cli.Command) error {
+			var opts options.NitroOptions
 			opts.Url = c.StringArg("url")
 			opts.Parallel = c.Uint8("parallel")
+			opts.OutputFileName = c.String("output")
 
-			if opts.Parallel == 0 {
-				opts.Parallel = uint8(runtime.NumCPU())
+			if opts.Url == "" {
+				fmt.Println("Incorrect Usage: Positional Argument 'URL' is required")
+				cli.ShowAppHelp(c)
+				return fmt.Errorf("Positional Argument 'URL' is required")
 			}
 
 			run(opts)
@@ -54,6 +63,13 @@ func main() {
 
 func run(opts options.NitroOptions) {
 	fmt.Println(opts)
-	metadata := metafetcher.FetchMetadata(opts.Url)
-	downloader.Download(metadata, opts.Parallel)
+	metadata, err := metafetcher.FetchMetadata(opts.Url)
+	if err != nil {
+		panic(err)
+	}
+
+	err = downloader.Download(metadata, opts)
+	if err != nil {
+		panic(err)
+	}
 }

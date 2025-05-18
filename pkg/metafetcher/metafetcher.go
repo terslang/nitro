@@ -7,42 +7,48 @@ import (
 	"strings"
 )
 
-func FetchMetadata(url string) MetaData {
+func FetchMetadata(url string) (MetaData, error) {
+	var metadata MetaData
 	resp, err := http.Head(url)
 	if err != nil {
-		fmt.Println("Error while fetching metadata")
+		return metadata, fmt.Errorf("Error while fetching metadata. %w", err)
 	}
 
-	var filename string
+	if resp.StatusCode != http.StatusOK {
+		return metadata, fmt.Errorf("Metadata request failed. Response status code: %d", resp.StatusCode)
+	}
+
+	metadata.Url = url
+
 	contentDisposition := resp.Header.Get("Content-Disposition")
 	if contentDisposition != "" {
 		if strings.HasPrefix(contentDisposition, "attachment;") {
 			parts := strings.Split(contentDisposition, "filename=")
 			if len(parts) > 1 {
-				filename = strings.Trim(strings.Trim(parts[1], "\""), " ")
+				metadata.FileName = strings.Trim(strings.Trim(parts[1], "\""), " ")
 			}
 		}
 	} else {
 		urlParts := strings.Split(url, "/")
-		filename = strings.Trim(urlParts[len(urlParts)-1], " ")
+		metadata.FileName = strings.Trim(urlParts[len(urlParts)-1], " ")
 	}
 
-	var contentLength uint64
 	contentLengthHeader := resp.Header.Get("Content-Length")
 	if contentLengthHeader != "" {
-		contentLength, _ = strconv.ParseUint(contentLengthHeader, 10, 64)
+		metadata.ContentLength, err = strconv.ParseUint(contentLengthHeader, 10, 64)
+		if err != nil {
+			return metadata, fmt.Errorf("Failed to read content length from the metadata. %w", err)
+		}
+	} else {
+		metadata.ContentLength = 0
 	}
 
-	var acceptRanges bool
 	acceptRangesHeader := resp.Header.Get("Accept-Ranges")
 	if acceptRangesHeader == "bytes" {
-		acceptRanges = true
+		metadata.AcceptRanges = true
+	} else {
+		metadata.AcceptRanges = false
 	}
 
-	return MetaData{
-		Url:           url,
-		FileName:      filename,
-		ContentLength: contentLength,
-		AcceptRanges:  acceptRanges,
-	}
+	return metadata, nil
 }
