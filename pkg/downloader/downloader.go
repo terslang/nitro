@@ -78,6 +78,21 @@ func Download(metadata metafetcher.MetaData, opts options.NitroOptions) error {
 
 	wg.Wait()
 
+	close(errorChannel)
+
+	var firstError error
+	for errFromGoRoutine := range errorChannel {
+		if errFromGoRoutine != nil {
+			if firstError == nil {
+				firstError = errFromGoRoutine
+			}
+		}
+	}
+
+	if firstError != nil {
+		return fmt.Errorf("Download of %s failed: %w", fileName, firstError)
+	}
+
 	return nil
 }
 
