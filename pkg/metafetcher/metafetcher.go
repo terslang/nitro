@@ -3,12 +3,15 @@ package metafetcher
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/jlaffaye/ftp"
 )
 
-func FetchMetadata(url string) (MetaData, error) {
-	var metadata MetaData
+func FetchMetadataHttp(url string) (HttpMetaData, error) {
+	var metadata HttpMetaData
 	resp, err := http.Head(url)
 	if err != nil {
 		return metadata, fmt.Errorf("Error while fetching metadata. %w", err)
@@ -49,6 +52,49 @@ func FetchMetadata(url string) (MetaData, error) {
 	} else {
 		metadata.AcceptRanges = false
 	}
+
+	return metadata, nil
+}
+
+func FetchMetadataFtp(rawUrl string) (FtpMetaData, error) {
+	var metadata FtpMetaData
+
+	parsedUrl, err := url.Parse(rawUrl)
+	if err != nil {
+		return metadata, fmt.Errorf("Failed to parse the URL: %w", err)
+	}
+
+	metadata.Server = parsedUrl.Host
+
+	if !strings.Contains(metadata.Server, ":") {
+		metadata.Server += ":21"
+	}
+
+	metadata.Username = parsedUrl.User.Username()
+	metadata.Password, _ = parsedUrl.User.Password()
+	metadata.FilePath = parsedUrl.Path
+	pathParts := strings.Split(metadata.FilePath, "/")
+	metadata.FileName = pathParts[len(pathParts)-1]
+
+	conn, err := ftp.Dial(metadata.Server)
+	if err != nil {
+		return metadata, fmt.Errorf("Error connecting to the server: %w", err)
+	}
+	defer conn.Quit()
+
+	if metadata.Username != "" {
+		err = conn.Login(metadata.Username, metadata.Password)
+		if err != nil {
+			return metadata, fmt.Errorf("Error logging in: %w", err)
+		}
+	}
+
+	fileSize, err := conn.FileSize(metadata.FilePath)
+	if err != nil {
+		return metadata, fmt.Errorf("Error while retreiving file size: %w", err)
+	}
+
+	metadata.ContentLength = uint64(fileSize)
 
 	return metadata, nil
 }

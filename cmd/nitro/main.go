@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/urfave/cli/v3"
 
@@ -62,14 +63,25 @@ func main() {
 }
 
 func run(opts options.NitroOptions) {
-	fmt.Println(opts)
-	metadata, err := metafetcher.FetchMetadata(opts.Url)
-	if err != nil {
-		panic(err)
-	}
-
-	err = downloader.Download(metadata, opts)
-	if err != nil {
-		panic(err)
+	if strings.HasPrefix(strings.ToLower(opts.Url), "http") {
+		metadata, err := metafetcher.FetchMetadataHttp(opts.Url)
+		if err != nil {
+			panic(err)
+		}
+		err = downloader.DownloadHttp(metadata, opts)
+		if err != nil {
+			panic(err)
+		}
+	} else if strings.HasPrefix(strings.ToLower(opts.Url), "ftp") {
+		metadata, err := metafetcher.FetchMetadataFtp(opts.Url)
+		if err != nil {
+			panic(err)
+		}
+		err = downloader.DownloadTcp(metadata, opts)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		panic("Url should start with http or ftp")
 	}
 }

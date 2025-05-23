@@ -7,18 +7,15 @@ import (
 	"os"
 	"sync"
 
+	"github.com/jlaffaye/ftp"
+	"github.com/terslang/nitro/pkg/helpers"
 	"github.com/terslang/nitro/pkg/metafetcher"
 	"github.com/terslang/nitro/pkg/options"
 )
 
-func getPartialContentSize(comtentLength uint64, parallel uint8) uint64 {
-	if parallel == 0 {
-		panic("division by zero")
-	}
-	return (comtentLength + uint64(parallel) - 1) / uint64(parallel)
-}
+const downloadBufferSize int = 1024 * 1024 // 1mb buffer
 
-func Download(metadata metafetcher.MetaData, opts options.NitroOptions) error {
+func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) error {
 	var fileName string
 	var parallel uint8
 
@@ -44,7 +41,10 @@ func Download(metadata metafetcher.MetaData, opts options.NitroOptions) error {
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, parallel)
 
-	partialContentSize := getPartialContentSize(metadata.ContentLength, parallel)
+	partialContentSize, err := helpers.GetPartialContentSize(metadata.ContentLength, parallel)
+	if err != nil {
+		return fmt.Errorf("%w", err)
+	}
 
 	for i := uint8(0); i < parallel; i++ {
 		wg.Add(1)
@@ -53,19 +53,16 @@ func Download(metadata metafetcher.MetaData, opts options.NitroOptions) error {
 
 			fmt.Println("Starting partial download", partNo)
 
-			rangeFromBytes := partialContentSize * uint64(partNo)
-			rangeToBytes := rangeFromBytes + partialContentSize - 1
+			rangeFromBytes, rangeToBytes := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
 
-			rangeToBytes = min(rangeToBytes, metadata.ContentLength)
-
-			partialContentsReader, err := downloadPartial(metadata.Url, rangeFromBytes, rangeToBytes)
+			partialContentsReader, err := downloadPartialHttp(metadata.Url, rangeFromBytes, rangeToBytes)
 			if err != nil {
 				err = fmt.Errorf("Part %d (range %d-%d): failed to initiate download: %w", partNo, rangeFromBytes, rangeToBytes, err)
 				errorChannel <- err
 				return
 			}
 
-			err = downloadAndWriteToFile(partialContentsReader, outFile, int64(rangeFromBytes), partNo)
+			err = downloadAndWriteToFileTilEof(partialContentsReader, outFile, int64(rangeFromBytes), partNo)
 			if err != nil {
 				err = fmt.Errorf("Part %d (range %d-%d): failed to download: %w", partNo, rangeFromBytes, rangeToBytes, err)
 				errorChannel <- err
@@ -96,7 +93,7 @@ func Download(metadata metafetcher.MetaData, opts options.NitroOptions) error {
 	return nil
 }
 
-func downloadPartial(url string, bytesRangeFrom uint64, bytesRangeTo uint64) (io.ReadCloser, error) {
+func downloadPartialHttp(url string, bytesRangeFrom uint64, bytesRangeTo uint64) (io.ReadCloser, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create download request. %w", err)
@@ -116,10 +113,102 @@ func downloadPartial(url string, bytesRangeFrom uint64, bytesRangeTo uint64) (io
 	return resp.Body, nil
 }
 
-func downloadAndWriteToFile(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8) error {
+func DownloadTcp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) error {
+	var fileName string
+	if opts.OutputFileName == options.DefaultFileName {
+		fileName = metadata.FileName
+	} else {
+		fileName = opts.OutputFileName
+	}
+
+	outFile, err := os.Create(fileName)
+	if err != nil {
+		return fmt.Errorf("Failed to create file. %w", err)
+	}
+	defer outFile.Close()
+
+	var wg sync.WaitGroup
+	errorChannel := make(chan error, opts.Parallel)
+
+	partialContentSize, err := helpers.GetPartialContentSize(metadata.ContentLength, opts.Parallel)
+	if err != nil {
+		return fmt.Errorf("%w", err)
+	}
+
+	for i := uint8(0); i < opts.Parallel; i++ {
+		wg.Add(1)
+		go func(partNo uint8) {
+			defer wg.Done()
+
+			fmt.Println("Starting partial download", partNo)
+
+			rangeFromBytes, _ := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
+			conn, partialContentsReader, err := downloadPartialTcp(metadata, rangeFromBytes)
+
+			if err != nil {
+				err = fmt.Errorf("Part %d (offset %d): failed to initiate download: %w", partNo, rangeFromBytes, err)
+				errorChannel <- err
+				return
+			}
+
+			defer conn.Quit()
+
+			err = downloadAndWriteToFileTilSize(partialContentsReader, outFile, int64(rangeFromBytes), partNo, partialContentSize)
+			if err != nil {
+				err = fmt.Errorf("Part %d (offset %d): failed to download: %w", partNo, rangeFromBytes, err)
+				errorChannel <- err
+				return
+			}
+
+			fmt.Printf("%d Partial download is done\n", partNo)
+		}(i)
+	}
+
+	wg.Wait()
+
+	close(errorChannel)
+
+	var firstError error
+	for errFromGoRoutine := range errorChannel {
+		if errFromGoRoutine != nil {
+			if firstError == nil {
+				firstError = errFromGoRoutine
+			}
+		}
+	}
+
+	if firstError != nil {
+		return fmt.Errorf("Download of %s failed: %w", fileName, firstError)
+	}
+
+	return nil
+}
+
+func downloadPartialTcp(metadata metafetcher.FtpMetaData, rangeFromBytes uint64) (*ftp.ServerConn, io.ReadCloser, error) {
+	conn, err := ftp.Dial(metadata.Server)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Error connecting to the server: %w", err)
+	}
+
+	if metadata.Username != "" {
+		err = conn.Login(metadata.Username, metadata.Password)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Error logging in: %w", err)
+		}
+	}
+
+	resp, err := conn.RetrFrom(metadata.FilePath, rangeFromBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Retr request failed: %w", err)
+	}
+
+	return conn, resp, nil
+}
+
+func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8) error {
 	defer reader.Close()
 
-	buffer := make([]byte, 32*1024) // 32kb buffer
+	buffer := make([]byte, downloadBufferSize)
 	currentWriteOffset := startOffset
 
 	for {
@@ -142,6 +231,45 @@ func downloadAndWriteToFile(reader io.ReadCloser, file *os.File, startOffset int
 			}
 
 			return fmt.Errorf("Part %d: failed to read response stream: %w", partNo, readErr)
+		}
+	}
+
+	return nil
+}
+
+func downloadAndWriteToFileTilSize(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8, partialContentSize uint64) error {
+	defer reader.Close()
+
+	buffer := make([]byte, downloadBufferSize)
+	currentWriteOffset := startOffset
+	totalBytesWritten := uint64(0)
+
+	for {
+		bytesRead, readErr := reader.Read(buffer)
+
+		if bytesRead > 0 {
+			bytesToWrite := min(bytesRead, int(partialContentSize-totalBytesWritten))
+			bytesWritten, writeErr := file.WriteAt(buffer[:bytesToWrite], currentWriteOffset)
+			if writeErr != nil {
+				return fmt.Errorf("Part %d: failed to write to file at offset %d: %w", partNo, currentWriteOffset, writeErr)
+			}
+
+			fmt.Printf("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+
+			currentWriteOffset += int64(bytesWritten)
+			totalBytesWritten += uint64(bytesWritten)
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+
+			return fmt.Errorf("Part %d: failed to read response stream: %w", partNo, readErr)
+		}
+
+		if totalBytesWritten >= partialContentSize {
+			break
 		}
 	}
 
