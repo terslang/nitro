@@ -62,6 +62,7 @@ func main() {
 	cmd.Run(context.Background(), os.Args)
 }
 
+// run takes options and starts the download based on the options given
 func run(opts options.NitroOptions) {
 	if strings.HasPrefix(strings.ToLower(opts.Url), "http") {
 		metadata, err := metafetcher.FetchMetadataHttp(opts.Url)
@@ -77,7 +78,7 @@ func run(opts options.NitroOptions) {
 		if err != nil {
 			panic(err)
 		}
-		err = downloader.DownloadTcp(metadata, opts)
+		err = downloader.DownloadFtp(metadata, opts)
 		if err != nil {
 			panic(err)
 		}

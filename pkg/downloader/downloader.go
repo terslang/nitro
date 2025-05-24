@@ -113,7 +113,7 @@ func downloadPartialHttp(url string, bytesRangeFrom uint64, bytesRangeTo uint64)
 	return resp.Body, nil
 }
 
-func DownloadTcp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) error {
+func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) error {
 	var fileName string
 	if opts.OutputFileName == options.DefaultFileName {
 		fileName = metadata.FileName
@@ -143,7 +143,7 @@ func DownloadTcp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) er
 			fmt.Println("Starting partial download", partNo)
 
 			rangeFromBytes, _ := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
-			conn, partialContentsReader, err := downloadPartialTcp(metadata, rangeFromBytes)
+			conn, partialContentsReader, err := downloadPartialFtp(metadata, rangeFromBytes)
 
 			if err != nil {
 				err = fmt.Errorf("Part %d (offset %d): failed to initiate download: %w", partNo, rangeFromBytes, err)
@@ -184,7 +184,7 @@ func DownloadTcp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) er
 	return nil
 }
 
-func downloadPartialTcp(metadata metafetcher.FtpMetaData, rangeFromBytes uint64) (*ftp.ServerConn, io.ReadCloser, error) {
+func downloadPartialFtp(metadata metafetcher.FtpMetaData, rangeFromBytes uint64) (*ftp.ServerConn, io.ReadCloser, error) {
 	conn, err := ftp.Dial(metadata.Server)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Error connecting to the server: %w", err)
