@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/jlaffaye/ftp"
+	"github.com/schollz/progressbar/v3"
 	"github.com/terslang/nitro/pkg/helpers"
 	"github.com/terslang/nitro/pkg/metafetcher"
 	"github.com/terslang/nitro/pkg/options"
@@ -34,9 +35,23 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) 
 
 	outFile, err := os.Create(fileName)
 	if err != nil {
-		return fmt.Errorf("Failed to create file. %w", err)
+		return fmt.Errorf("Failed to create file: %w", err)
 	}
 	defer outFile.Close()
+
+	if metadata.ContentLength > 0 {
+		if err := outFile.Truncate(int64(metadata.ContentLength)); err != nil {
+			return fmt.Errorf("Failed to preallocate file space: %w", err)
+		}
+	}
+
+	bar := progressbar.NewOptions64(
+		int64(metadata.ContentLength),
+		progressbar.OptionSetDescription("Downloading..."),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetWidth(40),
+		progressbar.OptionClearOnFinish(),
+	)
 
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, parallel)
@@ -45,6 +60,8 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) 
 	if err != nil {
 		return fmt.Errorf("%w", err)
 	}
+
+	httpClient := GetHttpClient(parallel)
 
 	for i := uint8(0); i < parallel; i++ {
 		wg.Add(1)
@@ -55,34 +72,30 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) 
 
 			rangeFromBytes, rangeToBytes := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
 
-			partialContentsReader, err := downloadPartialHttp(metadata.Url, rangeFromBytes, rangeToBytes)
+			partialContentsReader, err := downloadPartialHttp(metadata.Url, httpClient, rangeFromBytes, rangeToBytes)
 			if err != nil {
 				err = fmt.Errorf("Part %d (range %d-%d): failed to initiate download: %w", partNo, rangeFromBytes, rangeToBytes, err)
 				errorChannel <- err
 				return
 			}
 
-			err = downloadAndWriteToFileTilEof(partialContentsReader, outFile, int64(rangeFromBytes), partNo)
+			err = downloadAndWriteToFileTilEof(partialContentsReader, outFile, int64(rangeFromBytes), partNo, rangeToBytes-rangeFromBytes+1, bar)
 			if err != nil {
-				err = fmt.Errorf("Part %d (range %d-%d): failed to download: %w", partNo, rangeFromBytes, rangeToBytes, err)
-				errorChannel <- err
+				errorChannel <- fmt.Errorf("Part %d (range %d-%d): failed to download: %w", partNo, rangeFromBytes, rangeToBytes, err)
 				return
 			}
 
-			fmt.Printf("%d Partial download is done\n", partNo)
+			fmt.Printf("Part %d is done\n", partNo)
 		}(i)
 	}
 
 	wg.Wait()
-
 	close(errorChannel)
 
 	var firstError error
 	for errFromGoRoutine := range errorChannel {
-		if errFromGoRoutine != nil {
-			if firstError == nil {
-				firstError = errFromGoRoutine
-			}
+		if errFromGoRoutine != nil && firstError == nil {
+			firstError = errFromGoRoutine
 		}
 	}
 
@@ -93,7 +106,7 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) 
 	return nil
 }
 
-func downloadPartialHttp(url string, bytesRangeFrom uint64, bytesRangeTo uint64) (io.ReadCloser, error) {
+func downloadPartialHttp(url string, http_client *http.Client, bytesRangeFrom uint64, bytesRangeTo uint64) (io.ReadCloser, error) {
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create download request. %w", err)
@@ -101,7 +114,7 @@ func downloadPartialHttp(url string, bytesRangeFrom uint64, bytesRangeTo uint64)
 
 	req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", bytesRangeFrom, bytesRangeTo))
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http_client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("Download request failed. %w", err)
 	}
@@ -205,7 +218,7 @@ func downloadPartialFtp(metadata metafetcher.FtpMetaData, rangeFromBytes uint64)
 	return conn, resp, nil
 }
 
-func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8) error {
+func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8, expectedSize uint64, bar *progressbar.ProgressBar) error {
 	defer reader.Close()
 
 	buffer := make([]byte, downloadBufferSize)
@@ -213,23 +226,20 @@ func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffs
 
 	for {
 		bytesRead, readErr := reader.Read(buffer)
-
 		if bytesRead > 0 {
 			bytesWritten, writeErr := file.WriteAt(buffer[:bytesRead], currentWriteOffset)
 			if writeErr != nil {
 				return fmt.Errorf("Part %d: failed to write to file at offset %d: %w", partNo, currentWriteOffset, writeErr)
 			}
 
-			fmt.Printf("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
-
 			currentWriteOffset += int64(bytesWritten)
+			bar.Add(bytesWritten)
 		}
 
 		if readErr != nil {
 			if readErr == io.EOF {
 				break
 			}
-
 			return fmt.Errorf("Part %d: failed to read response stream: %w", partNo, readErr)
 		}
 	}
