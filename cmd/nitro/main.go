@@ -10,8 +10,10 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/terslang/nitro/pkg/downloader"
+	"github.com/terslang/nitro/pkg/helpers"
 	"github.com/terslang/nitro/pkg/metafetcher"
 	"github.com/terslang/nitro/pkg/options"
+	"github.com/terslang/nitro/pkg/progressutils"
 )
 
 const VERSION string = "0.0.1"
@@ -69,10 +71,30 @@ func run(opts options.NitroOptions) {
 		if err != nil {
 			panic(err)
 		}
-		err = downloader.DownloadHttp(metadata, opts)
+
+		segmentTargets := make([]uint64, opts.Parallel)
+		partialContentSize, err := helpers.GetPartialContentSize(metadata.ContentLength, opts.Parallel)
+		for i := uint8(0); i < opts.Parallel; i++ {
+			from, to := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, i)
+			segmentTargets[i] = to - from + 1
+		}
+
+		// Create the segmented progress bar at the top.
+		segBar := progressutils.NewSegmentedProgressBar(metadata.ContentLength, segmentTargets, opts.OutputFileName)
+
+		// Define a callback (if needed) to process progress updates.
+		progressCallback := func(part int, bytesWritten int) {
+			segBar.UpdateSegment(int(part), uint64(bytesWritten))
+			fmt.Print("\r", segBar.Render())
+		}
+
+		err = downloader.DownloadHttp(metadata, opts, progressCallback)
+
 		if err != nil {
 			panic(err)
 		}
+		segBar.Finish()
+		fmt.Println("\nDownload completed successfully!")
 	} else if strings.HasPrefix(strings.ToLower(opts.Url), "ftp") {
 		metadata, err := metafetcher.FetchMetadataFtp(opts.Url)
 		if err != nil {

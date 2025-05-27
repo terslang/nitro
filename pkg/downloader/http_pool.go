@@ -9,7 +9,7 @@ func GetHttpClient(parallel uint8) *http.Client {
 	if parallel > 1 {
 		return &http.Client{
 			Transport: &http.Transport{
-				MaxIdleConns:      100,
+				MaxIdleConns:      int(parallel),
 				IdleConnTimeout:   90 * time.Second,
 				DisableKeepAlives: false,
 			},
