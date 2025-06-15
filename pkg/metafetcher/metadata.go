@@ -1,5 +1,11 @@
 package metafetcher
 
+import (
+	"github.com/dustin/go-humanize"
+
+	"github.com/terslang/nitro/pkg/helpers"
+)
+
 type HttpMetaData struct {
 	Url           string
 	FileName      string
@@ -14,4 +20,12 @@ type FtpMetaData struct {
 	FilePath      string
 	FileName      string
 	ContentLength uint64
+}
+
+func (m *HttpMetaData) LogMetaData() {
+	helpers.Infof("File size: %s (%d bytes)\n", humanize.Bytes(m.ContentLength), m.ContentLength)
+}
+
+func (m *FtpMetaData) LogMetaData() {
+	helpers.Infof("File size: %s (%d bytes)\n", humanize.Bytes(m.ContentLength), m.ContentLength)
 }

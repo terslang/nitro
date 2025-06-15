@@ -15,7 +15,7 @@ import (
 
 const downloadBufferSize int = 1024 * 1024 // 1mb buffer
 
-func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) error {
+func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions, cbFunc func(partNo uint8, bytesWritten int)) error {
 	var fileName string
 	var parallel uint8
 
@@ -26,18 +26,20 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) 
 	}
 
 	if !metadata.AcceptRanges || metadata.ContentLength == 0 {
-		fmt.Println("Download doesn't support partial downloads. Downloading with 1 connection")
+		helpers.Infoln("Download doesn't support partial downloads. Downloading with 1 connection")
 		parallel = 1
 	} else {
 		parallel = opts.Parallel
 	}
 
+	helpers.Infof("Creating output file %s", fileName)
 	outFile, err := os.Create(fileName)
 	if err != nil {
 		return fmt.Errorf("Failed to create file. %w", err)
 	}
 	defer outFile.Close()
 
+	helpers.Infoln("Starting Download...")
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, parallel)
 
@@ -51,7 +53,7 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) 
 		go func(partNo uint8) {
 			defer wg.Done()
 
-			fmt.Println("Starting partial download", partNo)
+			helpers.Debug("Starting partial download: %d\n", partNo)
 
 			rangeFromBytes, rangeToBytes := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
 
@@ -62,14 +64,14 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions) 
 				return
 			}
 
-			err = downloadAndWriteToFileTilEof(partialContentsReader, outFile, int64(rangeFromBytes), partNo)
+			err = downloadAndWriteToFileTilEof(partialContentsReader, outFile, int64(rangeFromBytes), partNo, cbFunc)
 			if err != nil {
 				err = fmt.Errorf("Part %d (range %d-%d): failed to download: %w", partNo, rangeFromBytes, rangeToBytes, err)
 				errorChannel <- err
 				return
 			}
 
-			fmt.Printf("%d Partial download is done\n", partNo)
+			helpers.Debug("%d Partial download is done\n", partNo)
 		}(i)
 	}
 
@@ -113,7 +115,7 @@ func downloadPartialHttp(url string, bytesRangeFrom uint64, bytesRangeTo uint64)
 	return resp.Body, nil
 }
 
-func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) error {
+func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions, cbFunc func(partNo uint8, bytesWritten int)) error {
 	var fileName string
 	if opts.OutputFileName == options.DefaultFileName {
 		fileName = metadata.FileName
@@ -121,12 +123,14 @@ func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) er
 		fileName = opts.OutputFileName
 	}
 
+	helpers.Infof("Creating output file %s", fileName)
 	outFile, err := os.Create(fileName)
 	if err != nil {
 		return fmt.Errorf("Failed to create file. %w", err)
 	}
 	defer outFile.Close()
 
+	helpers.Infoln("Starting Download...")
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, opts.Parallel)
 
@@ -140,7 +144,7 @@ func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) er
 		go func(partNo uint8) {
 			defer wg.Done()
 
-			fmt.Println("Starting partial download", partNo)
+			helpers.Debug("Starting partial download: %d\n", partNo)
 
 			rangeFromBytes, _ := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
 			conn, partialContentsReader, err := downloadPartialFtp(metadata, rangeFromBytes)
@@ -153,14 +157,14 @@ func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions) er
 
 			defer conn.Quit()
 
-			err = downloadAndWriteToFileTilSize(partialContentsReader, outFile, int64(rangeFromBytes), partNo, partialContentSize)
+			err = downloadAndWriteToFileTilSize(partialContentsReader, outFile, int64(rangeFromBytes), partNo, partialContentSize, cbFunc)
 			if err != nil {
 				err = fmt.Errorf("Part %d (offset %d): failed to download: %w", partNo, rangeFromBytes, err)
 				errorChannel <- err
 				return
 			}
 
-			fmt.Printf("%d Partial download is done\n", partNo)
+			helpers.Debug("%d Partial download is done\n", partNo)
 		}(i)
 	}
 
@@ -205,7 +209,7 @@ func downloadPartialFtp(metadata metafetcher.FtpMetaData, rangeFromBytes uint64)
 	return conn, resp, nil
 }
 
-func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8) error {
+func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8, cbFunc func(partNo uint8, bytesWritten int)) error {
 	defer reader.Close()
 
 	buffer := make([]byte, downloadBufferSize)
@@ -220,7 +224,8 @@ func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffs
 				return fmt.Errorf("Part %d: failed to write to file at offset %d: %w", partNo, currentWriteOffset, writeErr)
 			}
 
-			fmt.Printf("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+			helpers.Debug("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+			cbFunc(partNo, bytesWritten)
 
 			currentWriteOffset += int64(bytesWritten)
 		}
@@ -237,7 +242,7 @@ func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffs
 	return nil
 }
 
-func downloadAndWriteToFileTilSize(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8, partialContentSize uint64) error {
+func downloadAndWriteToFileTilSize(reader io.ReadCloser, file *os.File, startOffset int64, partNo uint8, partialContentSize uint64, cbFunc func(partNo uint8, bytesWritten int)) error {
 	defer reader.Close()
 
 	buffer := make([]byte, downloadBufferSize)
@@ -254,7 +259,8 @@ func downloadAndWriteToFileTilSize(reader io.ReadCloser, file *os.File, startOff
 				return fmt.Errorf("Part %d: failed to write to file at offset %d: %w", partNo, currentWriteOffset, writeErr)
 			}
 
-			fmt.Printf("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+			helpers.Debug("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+			cbFunc(partNo, bytesWritten)
 
 			currentWriteOffset += int64(bytesWritten)
 			totalBytesWritten += uint64(bytesWritten)

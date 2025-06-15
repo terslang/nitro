@@ -8,9 +8,12 @@ import (
 	"strings"
 
 	"github.com/jlaffaye/ftp"
+
+	"github.com/terslang/nitro/pkg/helpers"
 )
 
 func FetchMetadataHttp(url string) (HttpMetaData, error) {
+	helpers.Infoln("Fetching Metadata...")
 	var metadata HttpMetaData
 	resp, err := http.Head(url)
 	if err != nil {
@@ -75,6 +78,8 @@ func FetchMetadataFtp(rawUrl string) (FtpMetaData, error) {
 	metadata.FilePath = parsedUrl.Path
 	pathParts := strings.Split(metadata.FilePath, "/")
 	metadata.FileName = pathParts[len(pathParts)-1]
+
+	helpers.Infoln("Fetching Metadata...")
 
 	conn, err := ftp.Dial(metadata.Server)
 	if err != nil {
