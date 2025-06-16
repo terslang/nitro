@@ -3,7 +3,7 @@ module github.com/terslang/nitro
 go 1.24.3
 
 require (
-	github.com/dustin/go-humanize v1.0.1
+	github.com/atuleu/go-humanize v0.0.0-20230602193851-3c422bf7e236
 	github.com/jlaffaye/ftp v0.2.0
 	github.com/urfave/cli/v3 v3.3.3
 	github.com/vbauerster/mpb/v8 v8.10.2

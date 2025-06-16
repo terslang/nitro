@@ -9,19 +9,19 @@ import (
 
 	"github.com/jlaffaye/ftp"
 
-	"github.com/terslang/nitro/pkg/helpers"
+	"github.com/terslang/nitro/pkg/logger"
 )
 
-func FetchMetadataHttp(url string) (HttpMetaData, error) {
-	helpers.Infoln("Fetching Metadata...")
+func FetchMetadataHttp(url string) (*HttpMetaData, error) {
+	logger.Infoln("Fetching Metadata...")
 	var metadata HttpMetaData
 	resp, err := http.Head(url)
 	if err != nil {
-		return metadata, fmt.Errorf("Error while fetching metadata. %w", err)
+		return nil, fmt.Errorf("Error while fetching metadata. %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return metadata, fmt.Errorf("Metadata request failed. Response status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("Metadata request failed. Response status code: %d", resp.StatusCode)
 	}
 
 	metadata.Url = url
@@ -43,7 +43,7 @@ func FetchMetadataHttp(url string) (HttpMetaData, error) {
 	if contentLengthHeader != "" {
 		metadata.ContentLength, err = strconv.ParseUint(contentLengthHeader, 10, 64)
 		if err != nil {
-			return metadata, fmt.Errorf("Failed to read content length from the metadata. %w", err)
+			return nil, fmt.Errorf("Failed to read content length from the metadata. %w", err)
 		}
 	} else {
 		metadata.ContentLength = 0
@@ -56,15 +56,15 @@ func FetchMetadataHttp(url string) (HttpMetaData, error) {
 		metadata.AcceptRanges = false
 	}
 
-	return metadata, nil
+	return &metadata, nil
 }
 
-func FetchMetadataFtp(rawUrl string) (FtpMetaData, error) {
+func FetchMetadataFtp(rawUrl string) (*FtpMetaData, error) {
 	var metadata FtpMetaData
 
 	parsedUrl, err := url.Parse(rawUrl)
 	if err != nil {
-		return metadata, fmt.Errorf("Failed to parse the URL: %w", err)
+		return nil, fmt.Errorf("Failed to parse the URL: %w", err)
 	}
 
 	metadata.Server = parsedUrl.Host
@@ -79,27 +79,27 @@ func FetchMetadataFtp(rawUrl string) (FtpMetaData, error) {
 	pathParts := strings.Split(metadata.FilePath, "/")
 	metadata.FileName = pathParts[len(pathParts)-1]
 
-	helpers.Infoln("Fetching Metadata...")
+	logger.Infoln("Fetching Metadata...")
 
 	conn, err := ftp.Dial(metadata.Server)
 	if err != nil {
-		return metadata, fmt.Errorf("Error connecting to the server: %w", err)
+		return nil, fmt.Errorf("Error connecting to the server: %w", err)
 	}
 	defer conn.Quit()
 
 	if metadata.Username != "" {
 		err = conn.Login(metadata.Username, metadata.Password)
 		if err != nil {
-			return metadata, fmt.Errorf("Error logging in: %w", err)
+			return nil, fmt.Errorf("Error logging in: %w", err)
 		}
 	}
 
 	fileSize, err := conn.FileSize(metadata.FilePath)
 	if err != nil {
-		return metadata, fmt.Errorf("Error while retreiving file size: %w", err)
+		return nil, fmt.Errorf("Error while retreiving file size: %w", err)
 	}
 
 	metadata.ContentLength = uint64(fileSize)
 
-	return metadata, nil
+	return &metadata, nil
 }

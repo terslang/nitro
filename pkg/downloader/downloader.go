@@ -8,14 +8,16 @@ import (
 	"sync"
 
 	"github.com/jlaffaye/ftp"
+
 	"github.com/terslang/nitro/pkg/helpers"
+	"github.com/terslang/nitro/pkg/logger"
 	"github.com/terslang/nitro/pkg/metafetcher"
 	"github.com/terslang/nitro/pkg/options"
 )
 
 const downloadBufferSize int = 1024 * 1024 // 1mb buffer
 
-func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions, cbFunc func(partNo uint8, bytesWritten int)) error {
+func DownloadHttp(metadata *metafetcher.HttpMetaData, opts *options.NitroOptions, cbFunc func(partNo uint8, bytesWritten int)) error {
 	var fileName string
 	var parallel uint8
 
@@ -26,20 +28,20 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions, 
 	}
 
 	if !metadata.AcceptRanges || metadata.ContentLength == 0 {
-		helpers.Infoln("Download doesn't support partial downloads. Downloading with 1 connection")
+		logger.Infoln("Download doesn't support partial downloads. Downloading with 1 connection")
 		parallel = 1
 	} else {
 		parallel = opts.Parallel
 	}
 
-	helpers.Infof("Creating output file %s", fileName)
+	logger.Infof("Creating output file %s", fileName)
 	outFile, err := os.Create(fileName)
 	if err != nil {
 		return fmt.Errorf("Failed to create file. %w", err)
 	}
 	defer outFile.Close()
 
-	helpers.Infoln("Starting Download...")
+	logger.Infoln("Starting Download...")
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, parallel)
 
@@ -53,7 +55,7 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions, 
 		go func(partNo uint8) {
 			defer wg.Done()
 
-			helpers.Debug("Starting partial download: %d\n", partNo)
+			logger.Debug("Starting partial download: %d\n", partNo)
 
 			rangeFromBytes, rangeToBytes := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
 
@@ -71,7 +73,7 @@ func DownloadHttp(metadata metafetcher.HttpMetaData, opts options.NitroOptions, 
 				return
 			}
 
-			helpers.Debug("%d Partial download is done\n", partNo)
+			logger.Debug("%d Partial download is done\n", partNo)
 		}(i)
 	}
 
@@ -115,7 +117,7 @@ func downloadPartialHttp(url string, bytesRangeFrom uint64, bytesRangeTo uint64)
 	return resp.Body, nil
 }
 
-func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions, cbFunc func(partNo uint8, bytesWritten int)) error {
+func DownloadFtp(metadata *metafetcher.FtpMetaData, opts *options.NitroOptions, cbFunc func(partNo uint8, bytesWritten int)) error {
 	var fileName string
 	if opts.OutputFileName == options.DefaultFileName {
 		fileName = metadata.FileName
@@ -123,14 +125,14 @@ func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions, cb
 		fileName = opts.OutputFileName
 	}
 
-	helpers.Infof("Creating output file %s", fileName)
+	logger.Infof("Creating output file %s", fileName)
 	outFile, err := os.Create(fileName)
 	if err != nil {
 		return fmt.Errorf("Failed to create file. %w", err)
 	}
 	defer outFile.Close()
 
-	helpers.Infoln("Starting Download...")
+	logger.Infoln("Starting Download...")
 	var wg sync.WaitGroup
 	errorChannel := make(chan error, opts.Parallel)
 
@@ -144,7 +146,7 @@ func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions, cb
 		go func(partNo uint8) {
 			defer wg.Done()
 
-			helpers.Debug("Starting partial download: %d\n", partNo)
+			logger.Debug("Starting partial download: %d\n", partNo)
 
 			rangeFromBytes, _ := helpers.CalculateFromAndToBytes(metadata.ContentLength, partialContentSize, partNo)
 			conn, partialContentsReader, err := downloadPartialFtp(metadata, rangeFromBytes)
@@ -164,7 +166,7 @@ func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions, cb
 				return
 			}
 
-			helpers.Debug("%d Partial download is done\n", partNo)
+			logger.Debug("%d Partial download is done\n", partNo)
 		}(i)
 	}
 
@@ -188,7 +190,7 @@ func DownloadFtp(metadata metafetcher.FtpMetaData, opts options.NitroOptions, cb
 	return nil
 }
 
-func downloadPartialFtp(metadata metafetcher.FtpMetaData, rangeFromBytes uint64) (*ftp.ServerConn, io.ReadCloser, error) {
+func downloadPartialFtp(metadata *metafetcher.FtpMetaData, rangeFromBytes uint64) (*ftp.ServerConn, io.ReadCloser, error) {
 	conn, err := ftp.Dial(metadata.Server)
 	if err != nil {
 		return nil, nil, fmt.Errorf("Error connecting to the server: %w", err)
@@ -224,7 +226,7 @@ func downloadAndWriteToFileTilEof(reader io.ReadCloser, file *os.File, startOffs
 				return fmt.Errorf("Part %d: failed to write to file at offset %d: %w", partNo, currentWriteOffset, writeErr)
 			}
 
-			helpers.Debug("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+			logger.Debug("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
 			cbFunc(partNo, bytesWritten)
 
 			currentWriteOffset += int64(bytesWritten)
@@ -259,7 +261,7 @@ func downloadAndWriteToFileTilSize(reader io.ReadCloser, file *os.File, startOff
 				return fmt.Errorf("Part %d: failed to write to file at offset %d: %w", partNo, currentWriteOffset, writeErr)
 			}
 
-			helpers.Debug("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
+			logger.Debug("Part %d: Downloaded to file at offset %d\n", partNo, currentWriteOffset)
 			cbFunc(partNo, bytesWritten)
 
 			currentWriteOffset += int64(bytesWritten)
