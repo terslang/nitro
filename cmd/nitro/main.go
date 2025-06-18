@@ -14,7 +14,7 @@ import (
 	"github.com/terslang/nitro/pkg/options"
 )
 
-const VERSION string = "0.0.1"
+const VERSION string = "0.1.0"
 
 func main() {
 	cmd := MakeCliCommand()
@@ -90,6 +90,6 @@ func run(opts *options.NitroOptions) {
 		duration := endTime.Sub(startTime)
 		logger.Infof("\nDownloaded in %s\n", humanize.Duration(duration))
 	} else {
-		panic("Url should start with http or ftp")
+		panic("Url should start with either http or ftp")
 	}
 }
