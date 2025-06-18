@@ -61,8 +61,10 @@ go build -o nitro ./cmd/nitro
 nitro [options] URL
 ```
 
-### Example
-
+### Examples
+```bash
+nitro https://example.com/movie.mp4
+```
 ```bash
 nitro -p 8 -o movie.mp4 https://example.com/movie.mp4
 ```
