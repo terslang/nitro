@@ -27,7 +27,7 @@ The recommended way to install Nitro is to download a tarball from the [Releases
     Verify
     
     ```bash
-    gpg --verify nitro-<version>.tar.gz.asc nitro-<version>.tar.gz
+    gpg --verify nitro-<version>.tar.gz.sig nitro-<version>.tar.gz
     ```
     
     
