@@ -39,6 +39,12 @@ func DownloadHttp(metadata *metafetcher.HttpMetaData, opts *options.NitroOptions
 	if err != nil {
 		return fmt.Errorf("Failed to create file. %w", err)
 	}
+	if metadata.ContentLength > 0 {
+		err := outFile.Truncate(int64(metadata.ContentLength))
+		if err != nil {
+			return fmt.Errorf("Failed to set file size. %w", err)
+		}
+	}
 	defer outFile.Close()
 
 	logger.Infoln("Starting Download...")
