@@ -29,8 +29,6 @@ The recommended way to install Nitro is to download a tarball from the [Releases
     ```bash
     gpg --verify nitro-<version>.tar.gz.sig nitro-<version>.tar.gz
     ```
-    
-    
 
 3. Extract and move the binary to a directory in your `PATH`, for example:
 
@@ -93,6 +91,3 @@ This downloads `movie.mp4` using 8 parallel connections.
 
 GPL-3.0-only
 
----
-
-> Nitro is under active development. Feedback and contributions are welcome!

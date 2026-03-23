@@ -24,7 +24,7 @@ func MakeProgressBars(noOfPBars uint8, contentLength uint64) (*ProgressBars, err
 
 	bars := make([]*mpb.Bar, noOfPBars)
 
-	for i := uint8(0); i < noOfPBars; i++ {
+	for i := range noOfPBars {
 		rangeFromBytes, rangeToBytes := helpers.CalculateFromAndToBytes(contentLength, partialContentSize, i)
 		barSize := int64(rangeToBytes - rangeFromBytes)
 		bar := progress.New(

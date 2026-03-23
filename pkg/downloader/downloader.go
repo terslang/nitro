@@ -50,7 +50,7 @@ func DownloadHttp(metadata *metafetcher.HttpMetaData, opts *options.NitroOptions
 		return fmt.Errorf("%w", err)
 	}
 
-	for i := uint8(0); i < parallel; i++ {
+	for i := range parallel {
 		wg.Add(1)
 		go func(partNo uint8) {
 			defer wg.Done()
@@ -141,7 +141,7 @@ func DownloadFtp(metadata *metafetcher.FtpMetaData, opts *options.NitroOptions, 
 		return fmt.Errorf("%w", err)
 	}
 
-	for i := uint8(0); i < opts.Parallel; i++ {
+	for i := range opts.Parallel {
 		wg.Add(1)
 		go func(partNo uint8) {
 			defer wg.Done()
